@@ -30,6 +30,14 @@ from miles.utils.workers.types import ClusterBackend, DeployComponent, HotRestar
 logger = logging.getLogger(__name__)
 
 
+CONVERSION_VERSION_FILE = "miles_conversion_version.txt"
+# Bump when a checkpoint an older miles converted would no longer load correctly, so a cached
+# conversion is redone instead of served. 1: the shared linear-attention layer's weight layout.
+# 2: version 1 could be stamped onto a conversion that publish_as_release had nested inside the
+# previous one, leaving a cache whose stamp was current but whose weights were not.
+CONVERSION_VERSION = "2"
+
+
 @dataclass
 class CommandUtilConfig:
     cluster_backend: ClusterBackend = ClusterBackend.RAY
@@ -215,9 +223,13 @@ class BaseCommandBackend(ABC):
         path_dst = f"{dir_dst}/{model_name}_torch_dist"
         with _exclusive_path_lock(path_dst):
             tracker = Path(path_dst) / "latest_checkpointed_iteration.txt"
-            if tracker.exists() and tracker.read_text().strip() == "release":
+            stamp = Path(path_dst) / CONVERSION_VERSION_FILE
+            cached = tracker.exists() and tracker.read_text().strip() == "release"
+            if cached and stamp.exists() and stamp.read_text().strip() == CONVERSION_VERSION:
                 logger.info(f"convert_checkpoint skip {path_dst} since tracker is 'release'")
                 return
+            if cached:
+                logger.info(f"convert_checkpoint redo {path_dst}: converted before layout {CONVERSION_VERSION}")
 
             multinode_args = ""
             if multinode:
@@ -244,6 +256,8 @@ class BaseCommandBackend(ABC):
                 f"--save {path_dst} "
                 f"{extra_args}"
             )
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(CONVERSION_VERSION)
 
     def ssh_start_ray_workers(
         self,
