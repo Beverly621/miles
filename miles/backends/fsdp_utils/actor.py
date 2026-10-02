@@ -544,6 +544,7 @@ class FSDPTrainRayActor(TrainRayActor):
                             "rollout_log_probs",
                             *sampling_mask_keys,
                             "rollout_topk_token_ids",
+                            "rollout_topk_lengths",
                             "rollout_topk_log_probs",
                         ],
                         self.args.data_pad_size_multiplier,
